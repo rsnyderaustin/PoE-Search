@@ -1,0 +1,3 @@
+main website: https://www.poewiki.net/wiki/Path_of_Exile_Wiki:Data_query_API
+tables: https://www.poewiki.net/wiki/Special:CargoTables
+example wiki query: https://github.com/lvlvllvlvllvlvl/RePoE/blob/master/RePoE%2Fparser%2Fmodules%2Funiques.py
