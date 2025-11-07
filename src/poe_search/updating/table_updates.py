@@ -3,10 +3,11 @@ from abc import ABC
 import pandas as pd
 
 from .updates import Updater, WikiTablePull, WikiApiFormatting, PsqlTableMetaData, WikiTableMetaData
+from ..psql.manager import PsqlManager
 from ..wiki_api.pull import WikiImageUrlPull
 
 
-class TableUpdater(ABC):
+class SimpleTableUpdater(ABC):
 
     def __init__(self,
                  psql_table_metadata: PsqlTableMetaData,
@@ -61,7 +62,7 @@ class TableUpdater(ABC):
         texts.extend(text)
 
 
-class SkillsTableUpdater(TableUpdater):
+class SkillsSimpleTableUpdater(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -78,7 +79,7 @@ class SkillsTableUpdater(TableUpdater):
         )
 
 
-class SkillQualitiesTable(TableUpdater):
+class SkillQualitiesSimpleTable(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -94,7 +95,7 @@ class SkillQualitiesTable(TableUpdater):
         )
 
 
-class ItemStatsTable(TableUpdater):
+class ItemStatsSimpleTable(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -122,7 +123,7 @@ class ItemStatsTable(TableUpdater):
         return df
 
 
-class ModsTable(TableUpdater):
+class ModsSimpleTable(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -144,7 +145,7 @@ class ModsTable(TableUpdater):
         return df
 
 
-class ItemBuffsTable(TableUpdater):
+class ItemBuffsSimpleTable(SimpleTableUpdater):
     super().__init__(
         wiki_table_metadata=WikiTableMetaData(
             table_name='item_buffs',
@@ -159,7 +160,7 @@ class ItemBuffsTable(TableUpdater):
     )
 
 
-class CorpseItemsTable(TableUpdater):
+class CorpseItemsSimpleTable(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -184,7 +185,7 @@ class CorpseItemsTable(TableUpdater):
         return df
 
 
-class PantheonSoulsTable(TableUpdater):
+class PantheonSoulsSimpleTable(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -214,7 +215,7 @@ class PantheonSoulsTable(TableUpdater):
         return df
 
 
-class MasteryEffectsTable(TableUpdater):
+class MasteryEffectsSimpleTable(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -231,7 +232,7 @@ class MasteryEffectsTable(TableUpdater):
         )
 
 
-class PassiveSkillsTable(TableUpdater):
+class PassiveSkillsSimpleTable(SimpleTableUpdater):
 
     def __init__(self):
         super().__init__(
@@ -255,7 +256,7 @@ class PassiveSkillsTable(TableUpdater):
         return df
 
 
-class CraftingModsTable(TableUpdater):
+class CraftingModsSimpleTable(SimpleTableUpdater):
     _invalid_item_classes = {
         'Map',
         'Map Fragment',
@@ -283,5 +284,96 @@ class CraftingModsTable(TableUpdater):
         return df
 
 
-class TableUpdater
+class SourceTablesUpdater:
+
+    def __init__(self,
+                 updater: Updater):
+        self._updater = updater
+
+    @staticmethod
+    def _extend_sources(name: str,
+                        insert_values: list,
+                        entry_sources: list,
+                        entry_ids: list):
+        if isinstance(insert_values[0], list):
+            vals = [v for v_list in insert_values for v in v_list]
+        else:
+            vals = insert_values
+
+        entry_sources.extend([name for _ in range(len(vals))])
+        entry_ids.extend(vals)
+
+    def _update_mod_id_sources(self):
+        mod_id_sources = {
+            'id': [],
+            'source': []
+        }
+
+        table_configs = [
+            ('synthesis_global_mods', 'mod_id', 'synthesis_global_mod', False),
+            ('synthesis_corrupted_mods', 'mod_ids', 'synthesis_corrupted_mod', True),
+            ('synthesis_mods', 'mod_ids', 'synthesis_mod', False),
+        ]
+
+        for table_name, field, source_name, should_comma_split in table_configs:
+            data = WikiTablePull(
+                table_name=table_name,
+                fields=[field]
+            ).fetch_table_data()
+
+            df = WikiApiFormatting.format_api_data(data)
+
+            # Handle columns that are comma-separated strings of IDs
+            if should_comma_split:
+                df[field] = df[field].apply(lambda v: v.split(','))
+
+            # Flatten mod IDs and insert sources
+            mod_ids = df[field].explode().dropna().tolist()
+
+            self._extend_sources(
+                name=source_name,
+                insert_values=mod_ids,
+                entry_sources=mod_id_sources['source'],
+                entry_ids=mod_id_sources['id']
+            )
+
+        # Convert results to DataFrame and upsert
+        df = pd.DataFrame(mod_id_sources)
+
+        self._updater.update_sql(
+            wiki_df=df,
+            psql_table_metadata=PsqlTableMetaData(
+                table_name='mod_id_sources',
+                fields=['id', 'source'],
+                id_col_name='id'
+            )
+        )
+
+    def _update_skill_id_sources(self):
+        skill_id_sources = {
+            'id': [],
+            'source': []
+        }
+
+        data = WikiTablePull(
+            table_name='grafts',
+            fields=['skill_id']
+        ).fetch_table_data()
+        graft_skill_ids_df = WikiApiFormatting.format_api_data(data)
+        self._extend_sources(
+            name='graft skill',
+            insert_values=list(graft_skill_ids_df['skill_id']),
+            entry_sources=skill_id_sources['source'],
+            entry_ids=skill_id_sources['id']
+        )
+
+        df = pd.DataFrame(skill_id_sources)
+        self._updater.update_sql(
+            wiki_df=df,
+            psql_table_metadata=PsqlTableMetaData(
+                table_name='skill_id_sources',
+                fields=['id', 'source'],
+                id_col_name='id'
+            )
+        )
 
