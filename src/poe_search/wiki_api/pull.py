@@ -94,6 +94,10 @@ class WikiTablePull:
         raise RuntimeError(f"Unexpectedly reached end of fetch_table_data.\n{self.__str__()}")
 
 
+def pull_image_url(file_name: str):
+    return WikiImageUrlPull(file_name).fetch_image_url()
+
+
 class WikiImageUrlPull:
 
     def __init__(self,
