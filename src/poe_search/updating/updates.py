@@ -3,18 +3,26 @@ import html
 import re
 import pandas as pd
 
-from src.poe_search.wiki_api.pull import WikiApiPull
+from src.poe_search.wiki_api.pull import WikiTablePull, WikiImageUrlPull
+
+
+class DatabaseUpdate:
+
+    @staticmethod
+    def _determine_image_url(file_name: str):
+        return WikiImageUrlPull(file_name).fetch_image_url()
 
 
 class WikiApiFormatting:
 
     @staticmethod
-    def _format_api_string(s: str,
-                           split_commas: bool = False) -> list[str]:
+    def _format_api_string(
+            s: str,
+            split_commas: bool = False
+    ) -> list[str]:
         if not s:
             return []
 
-        print(f"\nFormatting: {s}")
         s = html.unescape(s)
 
         if '<br>' in s:
@@ -25,13 +33,14 @@ class WikiApiFormatting:
 
         s = [s] if not isinstance(s, list) else s
 
-        print(f"\tinto {s}")
         return s
 
     @classmethod
-    def format_api_data(cls,
-                        data: list,
-                        split_comma_cols: set[str] = None) -> pd.DataFrame:
+    def format_api_data(
+            cls,
+            data: list,
+            split_comma_cols: set[str] = None
+    ) -> pd.DataFrame:
         split_comma_cols = split_comma_cols or []
 
         cols = list(data[0]['title'].keys())
@@ -53,126 +62,125 @@ class WikiApiFormatting:
 
         return pd.DataFrame(return_d)
 
-    @staticmethod
-    def determine_image_url(image_png: str):
-        return f"https://www.poewiki.net/wiki/{image_png}#/media/{image_png}"
+def update_database():
+    skills_df = update_skills()
 
 def update_skills():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='skill',
         fields=['_pageName=page_name', 'skill_icon', 'skill_id', 'stat_text']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
-    df['skill_icon'] = df['skill_icon'].apply(WikiApiFormatting.determine_image_url)
+    df['skill_icon'] = df['skill_icon'].apply(_determine_image_url)
     return df
 
 
 def update_skill_qualities():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='skill_quality',
         fields=['_pageName=page_name', 'stat_text']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def update_item_stats():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='item_stats',
         fields=['_pageName=page_name', 'id']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def update_mods():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='mods',
         fields=['id', 'name', 'stat_text_raw']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def determine_synthesis_mod_ids():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='synthesis_corrupted_mods',
         fields=['mod_ids']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data,
                                            split_comma_cols={'mod_ids'})
     return df
 
 
 def update_item_buffs():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='item_buffs',
         fields=['buff_values', 'id', 'stat_text']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def update_corpse_items():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='corpse_items',
         fields=['_pageName=page_name', 'monster_abilities']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def determine_synthesis_global_mods():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='synthesis_global_mods',
         fields=['mod_id']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def update_pantheon_souls():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='pantheon_souls',
         fields=['id', 'name', 'stat_text']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def determine_synthesis_mods():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='synthesis_mods',
         fields=['mod_ids']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def update_mastery_effects():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='mastery_effects',
         fields=['stat_ids', 'stat_text_raw']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
 
 
 def update_passive_skills():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='passive_skills',
         fields=['name', 'stat_text', 'icon']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     df['icon'] = df['icon'].apply(WikiApiFormatting.determine_image_url)
     return df
 
 
 def determine_crafting_mods():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='crafting_bench_options',
         fields=['item_class_categories', 'mod_id']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(
         data=data,
         split_comma_cols={'item_class_categories'}
@@ -181,9 +189,9 @@ def determine_crafting_mods():
 
 
 def determine_graft_skill_ids():
-    data = WikiApiPull.fetch_table_data(
+    data = WikiTablePull(
         table_name='grats',
         fields=['skill_id']
-    )
+    ).fetch_table_data()
     df = WikiApiFormatting.format_api_data(data)
     return df
