@@ -3,7 +3,7 @@ from abc import ABC
 import pandas as pd
 
 from .updates import Updater, WikiTablePull, WikiApiFormatting, PsqlTableMetaData, WikiTableMetaData
-from ..wiki_api.pull import pull_image_url
+from ..wiki_api.pull import WikiImageUrlPull
 
 
 class TableUpdater(ABC):
@@ -33,11 +33,13 @@ class TableUpdater(ABC):
 
         image_col_name = self._wiki_meta.image_file_col_name
         if image_col_name:
-            df[image_col_name] = df[image_col_name].apply(pull_image_url)
+            df[image_col_name] = df[image_col_name].apply(
+                lambda file_name: WikiImageUrlPull(file_name).fetch_image_url()
+                if file_name else None
+            )
 
         updater.update_sql(
             wiki_df=df,
-            wiki_table_metadata=self._wiki_meta,
             psql_table_metadata=self._psql_meta
         )
 
@@ -66,7 +68,6 @@ class SkillsTableUpdater(TableUpdater):
             wiki_table_metadata=WikiTableMetaData(
                 table_name='skill',
                 fields=['_pageName=page_name', 'skill_icon', 'skill_id', 'stat_text'],
-                id_col_name='skill_id',
                 image_file_col_name='skill_icon'
             ),
             psql_table_metadata=PsqlTableMetaData(
@@ -148,8 +149,7 @@ class ItemBuffsTable(TableUpdater):
         wiki_table_metadata=WikiTableMetaData(
             table_name='item_buffs',
             fields=['buff_values', 'id', 'stat_text', 'icon'],
-            image_file_col_name='icon',
-            id_col_name='id'
+            image_file_col_name='icon'
         ),
         psql_table_metadata=PsqlTableMetaData(
             table_name='item_buffs',
@@ -160,14 +160,128 @@ class ItemBuffsTable(TableUpdater):
 
 
 class CorpseItemsTable(TableUpdater):
-    super().__init__(
-        wiki_table_metadata=WikiTableMetaData(
-            table_name='corpse_items',
-            fields=['_pageName=page_name', 'monster_abilities']
-        ),
-        psql_table_metadata=PsqlTableMetaData(
-            table_name='corpse_items',
-            fields=['item_name', 'monster_abilities']
+
+    def __init__(self):
+        super().__init__(
+            wiki_table_metadata=WikiTableMetaData(
+                table_name='corpse_items',
+                fields=['_pageName=page_name', 'monster_abilities']
+            ),
+            psql_table_metadata=PsqlTableMetaData(
+                table_name='corpse_items',
+                fields=['item_name', 'monster_abilities', 'image_file_name'],
+                id_col_name='item_name',
+                text_col_name='monster_abilities'
+            )
         )
-    )
+
+    def _format_df_for_upsert(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['image_file_name'] = df['item_name'].apply(
+            lambda item_name: WikiImageUrlPull(f"File{item_name} inventory icon.png").fetch_image_url()
+            if item_name else None
+        )
+        df = df.rename(columns={'page_name': 'item_name'})
+        return df
+
+
+class PantheonSoulsTable(TableUpdater):
+
+    def __init__(self):
+        super().__init__(
+            wiki_table_metadata=WikiTableMetaData(
+                table_name='pantheon_souls',
+                fields=['id', 'name', 'stat_text', 'target_area_id']
+            ),
+            psql_table_metadata=PsqlTableMetaData(
+                table_name='pantheon_souls',
+                fields=['id', 'pantheon_name', 'enemy_name', 'soul_text', 'location_name'],
+                id_col_name='id',
+                text_col_name='soul_text'
+            )
+        )
+
+    def _format_df_for_upsert(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.rename(
+            columns={
+                'id': 'pantheon_name',
+                'name': 'enemy_name',
+                'stat_text': 'soul_text',
+                'target_area_id': 'location_name'
+            }
+        )
+        df['id'] = f"{df['pantheon_name']}_{df['enemy_name']}"
+        df['location_name'] = df['location_name'].apply(lambda name: name.replace('MapWorlds', ''))
+        return df
+
+
+class MasteryEffectsTable(TableUpdater):
+
+    def __init__(self):
+        super().__init__(
+            wiki_table_metadata=WikiTableMetaData(
+                table_name='mastery_effects',
+                fields=['id', 'stat_ids', 'stat_text_raw']
+            ),
+            psql_table_metadata=PsqlTableMetaData(
+                table_name='mastery_effects',
+                fields=['id', 'stat_ids', 'stat_text_raw'],
+                id_col_name='id',
+                text_col_name='stat_text_raw'
+            )
+        )
+
+
+class PassiveSkillsTable(TableUpdater):
+
+    def __init__(self):
+        super().__init__(
+            wiki_table_metadata=WikiTableMetaData(
+                table_name='passive_skills',
+                fields=['id', 'name', 'stat_text', 'icon']
+            ),
+            psql_table_metadata=PsqlTableMetaData(
+                table_name='passive_skills',
+                fields=['id', 'name', 'stat_text', 'image_file_name'],
+                id_col_name='id',
+                text_col_name='stat_text'
+            )
+        )
+
+    def _format_df_for_upsert(self, df: pd.DataFrame) -> pd.DataFrame:
+        df['image_file_name'] = df['icon'].apply(
+            lambda file_name: WikiImageUrlPull(file_name).fetch_image_url()
+            if file_name else None
+        )
+        return df
+
+
+class CraftingModsTable(TableUpdater):
+    _invalid_item_classes = {
+        'Map',
+        'Map Fragment',
+        'Breachstone'
+    }
+
+    def __init__(self):
+        super().__init__(
+            wiki_table_metadata=WikiTableMetaData(
+                table_name='crafting_bench_options',
+                fields=['id', 'item_class_categories', 'mod_id']
+            ),
+            psql_table_metadata=PsqlTableMetaData(
+                table_name='crafting_mods',
+                fields=['id', 'item_class_categories', 'mod_id'],
+                id_col_name='id'
+            )
+        )
+
+    def _format_df_for_upsert(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df[df['item_class_categories'].apply(
+            lambda categories: set(categories).isdisjoint(self.__class__._invalid_item_classes)
+        )]
+        df['item_class_categories'] = df['item_class_categories'].split(',')
+        return df
+
+
+class TableUpdater
 

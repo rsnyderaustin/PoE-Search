@@ -26,21 +26,17 @@ class WikiTableMetaData:
     def __init__(self,
                  table_name: str,
                  fields: list[str],
-                 id_col_name: str = None,
                  image_file_col_name: str = None):
         self.table_name = table_name
         self.fields = fields
 
-        self.id_col_name = id_col_name
         self.image_file_col_name = image_file_col_name
+
 
 class WikiApiFormatting:
 
     @staticmethod
-    def _format_api_string(
-            s: str,
-            split_commas: bool = False
-    ) -> list[str]:
+    def _format_api_string(s: str) -> list[str]:
         if not s:
             return []
 
@@ -49,9 +45,6 @@ class WikiApiFormatting:
         if '<br>' in s:
             s = s.split('<br>')
 
-        if split_commas and not isinstance(s, list):
-            s = s.split(',')
-
         s = [s] if not isinstance(s, list) else s
 
         return s
@@ -59,11 +52,8 @@ class WikiApiFormatting:
     @classmethod
     def format_api_data(
             cls,
-            data: list,
-            split_comma_cols: set[str] = None
+            data: list
     ) -> pd.DataFrame:
-        split_comma_cols = split_comma_cols or []
-
         cols = list(data[0]['title'].keys())
         formatted_cols_map = {
             col: col.replace(' ', '_')
@@ -74,10 +64,7 @@ class WikiApiFormatting:
         data = [d['title'] for d in data]
         for d in data:
             for col in cols:
-                val = cls._format_api_string(
-                    d[col],
-                    split_commas=formatted_cols_map[col] in split_comma_cols
-                )
+                val = cls._format_api_string(d[col])
 
                 return_d[formatted_cols_map[col]].append(val)
 
@@ -89,99 +76,6 @@ class Updater:
     def __init__(self,
                  psql_manager: PsqlManager):
         self._psql_manager = psql_manager
-
-    def _update_corpse_items(self) -> pd.DataFrame:
-        data = WikiTablePull(
-            table_name='corpse_items',
-            fields=['_pageName=page_name', 'monster_abilities']
-        ).fetch_table_data()
-        df = WikiApiFormatting.format_api_data(data)
-        df = df.rename(columns={'page_name': 'item_name'})
-        self._update_sql(
-            wiki_df=df,
-            wiki_df_id_col='item_name',
-            psql_table_name='corpse_items'
-        )
-
-        return df
-
-    def _update_pantheon_souls(self) -> pd.DataFrame:
-        data = WikiTablePull(
-            table_name='pantheon_souls',
-            fields=['id', 'name', 'stat_text', 'target_area_id']
-        ).fetch_table_data()
-        df = WikiApiFormatting.format_api_data(data)
-        df = df.rename(
-            columns={
-                'id': 'pantheon_name',
-                'name': 'enemy_name',
-                'target_area_id': 'location_name'
-            }
-        )
-        df['id'] = f"{df['pantheon_name']}_{df['enemy_name']}"
-        df['location_name'] = df['location_name'].apply(lambda name: name.replace('MapWorlds', ''))
-        self._update_sql(
-            wiki_df=df,
-            wiki_df_id_col='id',
-            psql_table_name='pantheon_souls'
-        )
-
-        return df
-
-    def _update_mastery_effects(self) -> pd.DataFrame:
-        data = WikiTablePull(
-            table_name='mastery_effects',
-            fields=['id', 'stat_ids', 'stat_text_raw']
-        ).fetch_table_data()
-        df = WikiApiFormatting.format_api_data(data)
-        self._update_sql(
-            wiki_df=df,
-            wiki_df_id_col='id',
-            psql_table_name='mastery_effects'
-        )
-
-        return df
-
-    def _update_passive_skills(self) -> pd.DataFrame:
-        data = WikiTablePull(
-            table_name='passive_skills',
-            fields=['id', 'name', 'stat_text', 'icon']
-        ).fetch_table_data()
-        df = WikiApiFormatting.format_api_data(data)
-        df['image_file_name'] = df['icon'].apply(
-            lambda file_name: WikiImageUrlPull(file_name).fetch_image_url()
-            if file_name else None
-        )
-        self._update_sql(
-            wiki_df=df,
-            wiki_df_id_col='id',
-            psql_table_name='passive_skills'
-        )
-
-        return df
-
-    def _update_crafting_mods(self) -> pd.DataFrame:
-        invalid_item_classes = {
-            'Map',
-            'Map Fragment',
-            'Breachstone'
-        }
-        data = WikiTablePull(
-            table_name='crafting_bench_options',
-            fields=['id', 'item_class_categories', 'mod_id']
-        ).fetch_table_data()
-        df = WikiApiFormatting.format_api_data(
-            data=data,
-            split_comma_cols={'item_class_categories'}
-        )
-        df = df[df['item_class_categories'].apply(lambda categories: set(categories).isdisjoint(invalid_item_classes))]
-        self._update_sql(
-            wiki_df=df,
-            wiki_df_id_col='id',
-            psql_table_name='crafting_mods'
-        )
-
-        return df
 
     @staticmethod
     def _insert_sources(name: str,
@@ -278,7 +172,6 @@ class Updater:
 
     def update_sql(self,
                    wiki_df: pd.DataFrame,
-                   wiki_table_metadata: WikiTableMetaData,
                    psql_table_metadata: PsqlTableMetaData):
 
         old_hash = self._psql_manager.fetch_table_hash(psql_table_name=psql_table_metadata.table_name)
@@ -292,7 +185,7 @@ class Updater:
             self._psql_manager.update_table(
                 psql_table_name=psql_table_metadata.table_name,
                 new_df=wiki_df,
-                new_df_id_col_name=wiki_table_metadata.id_col_name
+                id_col_name=psql_table_metadata.id_col_name
             )
 
     def update(self):

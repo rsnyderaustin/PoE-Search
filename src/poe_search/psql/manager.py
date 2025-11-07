@@ -89,12 +89,12 @@ class PsqlManager:
     def update_table(self,
                      psql_table_name: str,
                      new_df: pd.DataFrame,
-                     new_df_id_col_name: str):
+                     id_col_name: str):
         records = new_df.to_dict(orient='records')
         psql_table = self._create_table(psql_table_name)
         statement = insert(psql_table).values(records)
         statement = statement.on_conflict_do_update(
-            index_elements=[new_df_id_col_name],
+            index_elements=[id_col_name],
             set_={col.name: statement.excluded[col.name] for col in psql_table.columns if col.name != new_df_id_col_name}
         )
 
